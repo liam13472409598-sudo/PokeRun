@@ -35,13 +35,13 @@ enum DexStyleFilter: Hashable, Identifiable {
     }
 }
 
-/// Loads bundled pixel Pokémon sprites across all 5 series and Pokémon names.
+/// Loads bundled pixel & animated Pokémon sprites across all 7 series (3,215 runners).
 final class SpriteStore {
     static let shared = SpriteStore()
 
-    /// Standard height for battle sprites (B/W, Emerald, Crystal) in the menu bar, in points.
+    /// Standard height for battle sprites in the menu bar, in points.
     static let battleMenuBarHeight: CGFloat = 20
-    /// Max height for 2× integer-scaled mini pixel sprites (FireRed, HGSS) in the menu bar, in points.
+    /// Max height for 2× integer-scaled mini pixel sprites (FireRed, Walking) in the menu bar, in points.
     static let miniMenuBarMaxHeight: CGFloat = 22
     /// Widest a runner may be in the menu bar, in points.
     static let menuBarMaxWidth: CGFloat = 44
@@ -85,7 +85,7 @@ final class SpriteStore {
         let base = speciesName(item.dexID)
         switch item.style {
         case .blackWhite: return base
-        case .fireRed, .hgss, .emerald, .crystal: return "\(base) (\(item.style.badge))"
+        default: return "\(base) (\(item.style.badge))"
         }
     }
 
@@ -93,9 +93,14 @@ final class SpriteStore {
         "\(Self.dexNumber(item.dexID)) · \(item.style.badge)"
     }
 
-    static func dexNumber(_ id: Int) -> String { String(format: "#%03d", id) }
+    static func dexNumber(_ id: Int) -> String {
+        if let base = AlolaForms.baseDexByRunnerID[id] {
+            return String(format: "#%03d-A", base)
+        }
+        return id >= 1000 ? String(format: "#%04d", id) : String(format: "#%03d", id)
+    }
 
-    /// Searches Pokédex entries in series order: B/W -> FireRed -> HGSS -> Emerald -> Crystal.
+    /// Searches Pokédex entries across all 7 series (3,215 sprites).
     func search(_ query: String, filter: DexStyleFilter = .all) -> [RunnerItem] {
         let styles: [SpriteStyle]
         switch filter {
@@ -104,7 +109,7 @@ final class SpriteStore {
         }
 
         let allItems = styles.flatMap { style in
-            (1...style.maxID).map { RunnerItem(style: style, dexID: $0) }
+            style.validIDs.map { RunnerItem(style: style, dexID: $0) }
         }
 
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -112,10 +117,16 @@ final class SpriteStore {
 
         let numeric = q.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         if let n = Int(numeric) {
-            return allItems.filter { String($0.dexID).hasPrefix(String(n)) }
+            let prefix = String(n)
+            return allItems.filter { item in
+                if String(item.dexID).hasPrefix(prefix) { return true }
+                if let base = AlolaForms.baseDexByRunnerID[item.dexID], String(base).hasPrefix(prefix) { return true }
+                return false
+            }
         }
         return allItems.filter { item in
             speciesName(item.dexID).lowercased().contains(q)
+                || Self.dexNumber(item.dexID).lowercased().contains(q)
                 || item.style.title.lowercased().contains(q)
                 || item.style.badge.lowercased().contains(q)
         }
@@ -139,7 +150,7 @@ final class SpriteStore {
     /// Frames sized for the menu bar.
     func runnerFrames(for item: RunnerItem) -> RunnerFrames? {
         switch item.style {
-        case .blackWhite, .emerald, .crystal:
+        case .blackWhite, .alola, .modernPixel, .emerald, .crystal:
             return frames(for: item, height: Self.battleMenuBarHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
         case .fireRed, .hgss:
             return frames(for: item, height: Self.miniMenuBarMaxHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
@@ -183,33 +194,49 @@ final class SpriteStore {
 
     private static func decodeSprite(_ url: URL, style: SpriteStyle) -> (frames: [CGImage], delays: [Double])? {
         switch style {
-        case .blackWhite, .crystal:
+        case .blackWhite, .alola, .crystal:
             return decodeGIF(url)
         case .fireRed:
             return decodeVerticalTwoFrameSheet(url, frameDelay: 0.25)
-        case .emerald:
-            return decodeVerticalTwoFrameSheet(url, frameDelay: 0.28)
+        case .modernPixel, .emerald:
+            return decodeVerticalTwoFrameSheet(url, frameDelay: 0.26)
         case .hgss:
             return decodeHGSSOverworldSheet(url)
         }
     }
 
-    /// Decodes a vertical 2-frame sprite sheet (FireRed 32×64 party icon or Emerald 64×128 battle sprite).
+    /// Decodes a vertical 2-frame sprite sheet, or synthesises a 1px pixel hop if single-frame.
     private static func decodeVerticalTwoFrameSheet(_ url: URL, frameDelay: Double) -> (frames: [CGImage], delays: [Double])? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let sheet = CGImageSourceCreateImageAtIndex(src, 0, nil),
               sheet.width > 0, sheet.height > 0 else { return nil }
-        guard sheet.height >= sheet.width * 2 else {
-            return ([sheet], [frameDelay])
+        if sheet.height >= sheet.width * 2 {
+            let cellW = sheet.width
+            let cellH = sheet.height / 2
+            guard let f0 = sheet.cropping(to: CGRect(x: 0, y: 0, width: cellW, height: cellH)),
+                  let f1 = sheet.cropping(to: CGRect(x: 0, y: cellH, width: cellW, height: cellH)) else { return nil }
+            return ([f0, f1], [frameDelay, frameDelay])
+        } else {
+            return makeTwoFrameHop(from: sheet, frameDelay: frameDelay)
         }
-        let cellW = sheet.width
-        let cellH = sheet.height / 2
-        guard let f0 = sheet.cropping(to: CGRect(x: 0, y: 0, width: cellW, height: cellH)),
-              let f1 = sheet.cropping(to: CGRect(x: 0, y: cellH, width: cellW, height: cellH)) else { return nil }
+    }
+
+    /// Synthesises a crisp 1-pixel vertical bounce for static Gen 9 battle sprites so CPU speed still animates them.
+    private static func makeTwoFrameHop(from img: CGImage, frameDelay: Double) -> (frames: [CGImage], delays: [Double])? {
+        let w = img.width, h = img.height + 2
+        func shifted(dy: Int) -> CGImage? {
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+            ctx.interpolationQuality = .none
+            ctx.draw(img, in: CGRect(x: 0, y: dy, width: img.width, height: img.height))
+            return ctx.makeImage()
+        }
+        guard let f0 = shifted(dy: 0), let f1 = shifted(dy: 2) else { return ([img], [frameDelay]) }
         return ([f0, f1], [frameDelay, frameDelay])
     }
 
-    /// Decodes a horizontal HeartGold/SoulSilver overworld follower sheet, extracting the side-walking frames.
+    /// Decodes a horizontal overworld follower sheet, extracting the side-walking frames.
     private static func decodeHGSSOverworldSheet(_ url: URL) -> (frames: [CGImage], delays: [Double])? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let sheet = CGImageSourceCreateImageAtIndex(src, 0, nil),
@@ -217,7 +244,6 @@ final class SpriteStore {
         let cells = max(1, sheet.width / sheet.height)
         let cellW = sheet.width / cells
         let cellH = sheet.height
-        // Standard 6-cell HGSS sheet: [down0, down1, up0, up1, leftWalk0, leftWalk1].
         let i0: Int
         let i1: Int
         if cells >= 6 {
@@ -225,7 +251,7 @@ final class SpriteStore {
         } else if cells >= 2 {
             i0 = cells - 2; i1 = cells - 1
         } else {
-            i0 = 0; i1 = 0
+            return makeTwoFrameHop(from: sheet, frameDelay: 0.22)
         }
         guard let f0 = sheet.cropping(to: CGRect(x: i0 * cellW, y: 0, width: cellW, height: cellH)),
               let f1 = sheet.cropping(to: CGRect(x: i1 * cellW, y: 0, width: cellW, height: cellH)) else { return nil }

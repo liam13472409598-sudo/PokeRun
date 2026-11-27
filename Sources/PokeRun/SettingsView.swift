@@ -47,7 +47,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 690, height: 540)
+        .frame(width: 720, height: 550)
     }
 
     private var tabBar: some View {
@@ -151,7 +151,7 @@ struct RunnersSettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Current roster (B/W -> FireRed -> HGSS -> Emerald -> Crystal)
+            // Current roster
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Your Runners").font(.headline)
@@ -183,7 +183,7 @@ struct RunnersSettingsView: View {
                     .disabled(selection == nil || settings.roster.count <= 1)
                     Spacer()
                     Button("Reset") { settings.resetRoster() }
-                        .help("Restore default favourites across all 5 series")
+                        .help("Restore default favourites across all 7 series")
                 }
                 .controlSize(.small)
             }
@@ -192,7 +192,7 @@ struct RunnersSettingsView: View {
 
             Divider()
 
-            // Pokédex search across all 5 series (2,165 pixel sprites)
+            // Pokédex search across all 7 series (3,215 sprites, Gen 1–9 + Alola)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Add from Pokédex").font(.headline)
@@ -202,16 +202,9 @@ struct RunnersSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Picker("Series", selection: $styleFilter) {
-                    ForEach(DexStyleFilter.allCases) { f in
-                        Text(f.label).tag(f)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .labelsHidden()
+                filterBar
 
-                TextField("Search by name, #number, or series", text: $query)
+                TextField("Search Rowlet, Mimikyu, Alola, #722, etc.", text: $query)
                     .textFieldStyle(.roundedBorder)
 
                 let matches = store.search(query, filter: styleFilter)
@@ -230,10 +223,32 @@ struct RunnersSettingsView: View {
         }
     }
 
+    private var filterBar: some View {
+        HStack(spacing: 4) {
+            ForEach(DexStyleFilter.allCases) { f in
+                let active = styleFilter == f
+                Button {
+                    styleFilter = f
+                } label: {
+                    Text(f.label)
+                        .font(.caption2.weight(active ? .semibold : .regular))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(active ? Color.white : Color.primary)
+                        .background(
+                            Capsule()
+                                .fill(active ? Color.accentColor : Color.primary.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var seriesRangeLabel: String {
         switch styleFilter {
-        case .all: return "2,165 sprites · 5 series"
-        case .series(let s): return "\(s.title) · #001–\(SpriteStore.dexNumber(s.maxID))"
+        case .all: return "3,215 sprites · Gen 1–9"
+        case .series(let s): return "\(s.title) · \(s.validIDs.count)"
         }
     }
 
@@ -357,13 +372,13 @@ struct AboutView: View {
             Text("PokéRun").font(.largeTitle.bold())
             Text("Version \(version) · Personal build · \(store.speciesName(runner.dexID)) (\(store.subtitle(runner)))")
                 .foregroundStyle(.secondary)
-            Text("A RunCat-style menu bar runner starring 2,165 pixel Pokémon across 5 classic series.")
+            Text("A RunCat-style menu bar runner starring 3,215 Pokémon across Generations 1–9 (including full Gen 7 Alola & Alolan forms).")
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-            Divider().frame(width: 380)
+                .frame(maxWidth: 440)
+            Divider().frame(width: 400)
             VStack(spacing: 4) {
-                Text("Series: Black & White (#001–#649) · FireRed (#001–#386) · HeartGold & SoulSilver (#001–#493)")
-                Text("Emerald (#001–#386) · Crystal (#001–#251)")
+                Text("Series: Black & White · FireRed · Sun & Moon (Gen 7 Alola) · Gen 6–9 Pixel")
+                Text("Walking Followers (#001–#1025 + Alola) · Emerald · Crystal")
                 Text("© Nintendo / Creatures Inc. / GAME FREAK inc. / The Pokémon Company")
                 Text("Inspired by RunCat by Kyome. Built for personal use only.")
             }

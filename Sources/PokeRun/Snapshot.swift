@@ -36,7 +36,7 @@ enum Snapshot {
                     Text(style.badge)
                         .font(.caption.bold())
                         .foregroundStyle(.black)
-                        .frame(width: 60, alignment: .leading)
+                        .frame(width: 78, alignment: .leading)
                     ForEach(items) { item in
                         if let rf = store.runnerFrames(for: item), let img = rf.images.first {
                             Image(nsImage: img).interpolation(.none)
