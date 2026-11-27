@@ -180,29 +180,37 @@ def fetch(url: str) -> bytes:
 
 
 def ensure_index0_transparent(png: bytes) -> bytes:
-    """For indexed-palette PNGs without a tRNS chunk, mark palette index 0 as transparent."""
+    """For indexed-palette GBA PNGs, always ensure palette index 0 has alpha = 0 in tRNS."""
     if not png.startswith(b"\x89PNG\r\n\x1a\n"):
         return png
     pos = 8
     chunks = []
     color_type = None
-    has_trns = False
+    trns_data = None
     while pos + 8 <= len(png):
         length = struct.unpack(">I", png[pos:pos + 4])[0]
         ctype = png[pos + 4:pos + 8]
         cdata = png[pos + 8:pos + 8 + length]
         ccrc = png[pos + 8 + length:pos + 12 + length]
-        chunks.append((ctype, cdata, ccrc))
         if ctype == b"IHDR" and len(cdata) >= 10:
             color_type = cdata[9]
         elif ctype == b"tRNS":
-            has_trns = True
+            trns_data = cdata
+        if ctype != b"tRNS":
+            chunks.append((ctype, cdata, ccrc))
         pos += 12 + length
-    if color_type != 3 or has_trns:
+    if color_type != 3:
         return png
+    if trns_data is not None and len(trns_data) > 0 and trns_data[0] == 0:
+        return png
+    new_trns = (b"\x00" + trns_data[1:]) if (trns_data and len(trns_data) > 1) else b"\x00"
+    trns_body = b"tRNS" + new_trns
+    trns_chunk = (
+        struct.pack(">I", len(new_trns))
+        + trns_body
+        + struct.pack(">I", zlib.crc32(trns_body) & 0xFFFFFFFF)
+    )
     out = bytearray(b"\x89PNG\r\n\x1a\n")
-    trns_body = b"tRNS\x00"
-    trns_chunk = struct.pack(">I", 1) + trns_body + struct.pack(">I", zlib.crc32(trns_body) & 0xFFFFFFFF)
     for ctype, cdata, ccrc in chunks:
         out += struct.pack(">I", len(cdata)) + ctype + cdata + ccrc
         if ctype == b"PLTE":
