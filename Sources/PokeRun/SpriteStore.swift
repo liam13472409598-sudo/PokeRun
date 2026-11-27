@@ -12,22 +12,37 @@ struct RunnerFrames {
 }
 
 /// Filter used in the Pokédex browser.
-enum DexStyleFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case blackWhite = "B/W (649)"
-    case fireRed = "FireRed (386)"
+enum DexStyleFilter: Hashable, Identifiable {
+    case all
+    case series(SpriteStyle)
 
-    var id: String { rawValue }
+    static var allCases: [DexStyleFilter] {
+        [.all] + SpriteStyle.allCases.map { .series($0) }
+    }
+
+    var id: String {
+        switch self {
+        case .all: return "all"
+        case .series(let s): return s.rawValue
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .series(let s): return s.shortFilterLabel
+        }
+    }
 }
 
-/// Loads bundled Black/White animated sprites, FireRed 2-frame pixel icons, and Pokémon names.
+/// Loads bundled pixel Pokémon sprites across all 5 series and Pokémon names.
 final class SpriteStore {
     static let shared = SpriteStore()
 
-    /// Standard height for Black/White sprites in the menu bar, in points.
-    static let bwMenuBarHeight: CGFloat = 20
-    /// Max height for FireRed 2× integer-scaled pixel icons in the menu bar, in points.
-    static let frMenuBarMaxHeight: CGFloat = 22
+    /// Standard height for battle sprites (B/W, Emerald, Crystal) in the menu bar, in points.
+    static let battleMenuBarHeight: CGFloat = 20
+    /// Max height for 2× integer-scaled mini pixel sprites (FireRed, HGSS) in the menu bar, in points.
+    static let miniMenuBarMaxHeight: CGFloat = 22
     /// Widest a runner may be in the menu bar, in points.
     static let menuBarMaxWidth: CGFloat = 44
 
@@ -46,7 +61,6 @@ final class SpriteStore {
         }
     }
 
-    /// When running via `swift run`, fall back to the repo's Resources folder.
     private static var devResourcesURL: URL? {
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         var dir = exe.deletingLastPathComponent()
@@ -67,12 +81,11 @@ final class SpriteStore {
         return names[dexID - 1]
     }
 
-    /// Display name including style suffix when needed (e.g. "Pikachu (FireRed)").
     func displayName(_ item: RunnerItem) -> String {
         let base = speciesName(item.dexID)
         switch item.style {
         case .blackWhite: return base
-        case .fireRed: return "\(base) (FireRed)"
+        case .fireRed, .hgss, .emerald, .crystal: return "\(base) (\(item.style.badge))"
         }
     }
 
@@ -82,13 +95,12 @@ final class SpriteStore {
 
     static func dexNumber(_ id: Int) -> String { String(format: "#%03d", id) }
 
-    /// Searches Pokédex entries: Black & White (#001–#649) first, followed by FireRed (#001–#386).
+    /// Searches Pokédex entries in series order: B/W -> FireRed -> HGSS -> Emerald -> Crystal.
     func search(_ query: String, filter: DexStyleFilter = .all) -> [RunnerItem] {
         let styles: [SpriteStyle]
         switch filter {
-        case .all: styles = [.blackWhite, .fireRed]
-        case .blackWhite: styles = [.blackWhite]
-        case .fireRed: styles = [.fireRed]
+        case .all: styles = SpriteStyle.allCases
+        case .series(let s): styles = [s]
         }
 
         let allItems = styles.flatMap { style in
@@ -112,35 +124,25 @@ final class SpriteStore {
     // MARK: Sprites
 
     func spriteURL(_ item: RunnerItem) -> URL? {
-        switch item.style {
-        case .blackWhite:
-            if let url = Bundle.main.url(forResource: "\(item.dexID)", withExtension: "gif", subdirectory: "sprites") {
-                return url
-            }
-            if let dev = Self.devResourcesURL?.appendingPathComponent("sprites/\(item.dexID).gif"),
-               FileManager.default.fileExists(atPath: dev.path) {
-                return dev
-            }
-            return nil
-        case .fireRed:
-            if let url = Bundle.main.url(forResource: "\(item.dexID)", withExtension: "png", subdirectory: "sprites_firered") {
-                return url
-            }
-            if let dev = Self.devResourcesURL?.appendingPathComponent("sprites_firered/\(item.dexID).png"),
-               FileManager.default.fileExists(atPath: dev.path) {
-                return dev
-            }
-            return nil
+        let subdir = item.style.subdirectory
+        let ext = item.style.fileExtension
+        if let url = Bundle.main.url(forResource: "\(item.dexID)", withExtension: ext, subdirectory: subdir) {
+            return url
         }
+        if let dev = Self.devResourcesURL?.appendingPathComponent("\(subdir)/\(item.dexID).\(ext)"),
+           FileManager.default.fileExists(atPath: dev.path) {
+            return dev
+        }
+        return nil
     }
 
     /// Frames sized for the menu bar.
     func runnerFrames(for item: RunnerItem) -> RunnerFrames? {
         switch item.style {
-        case .blackWhite:
-            return frames(for: item, height: Self.bwMenuBarHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
-        case .fireRed:
-            return frames(for: item, height: Self.frMenuBarMaxHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
+        case .blackWhite, .emerald, .crystal:
+            return frames(for: item, height: Self.battleMenuBarHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
+        case .fireRed, .hgss:
+            return frames(for: item, height: Self.miniMenuBarMaxHeight, maxWidth: Self.menuBarMaxWidth, menuBarMode: true)
         }
     }
 
@@ -164,7 +166,7 @@ final class SpriteStore {
         return result
     }
 
-    /// First frame, for lists and menus. Only the first frame is rendered and kept.
+    /// First frame, for lists and menus.
     func thumbnail(for item: RunnerItem, height: CGFloat = 28) -> NSImage? {
         let key = "\(item.key)@\(height)"
         if let cached = thumbCache[key] { return cached }
@@ -181,24 +183,53 @@ final class SpriteStore {
 
     private static func decodeSprite(_ url: URL, style: SpriteStyle) -> (frames: [CGImage], delays: [Double])? {
         switch style {
-        case .blackWhite:
+        case .blackWhite, .crystal:
             return decodeGIF(url)
         case .fireRed:
-            return decodeFireRedIcon(url)
+            return decodeVerticalTwoFrameSheet(url, frameDelay: 0.25)
+        case .emerald:
+            return decodeVerticalTwoFrameSheet(url, frameDelay: 0.28)
+        case .hgss:
+            return decodeHGSSOverworldSheet(url)
         }
     }
 
-    /// Decodes a 32×64 (two stacked 32×32 cells) FireRed party/box pixel icon.
-    private static func decodeFireRedIcon(_ url: URL) -> (frames: [CGImage], delays: [Double])? {
+    /// Decodes a vertical 2-frame sprite sheet (FireRed 32×64 party icon or Emerald 64×128 battle sprite).
+    private static func decodeVerticalTwoFrameSheet(_ url: URL, frameDelay: Double) -> (frames: [CGImage], delays: [Double])? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let sheet = CGImageSourceCreateImageAtIndex(src, 0, nil),
-              sheet.width > 0, sheet.height >= sheet.width * 2 else { return nil }
+              sheet.width > 0, sheet.height > 0 else { return nil }
+        guard sheet.height >= sheet.width * 2 else {
+            return ([sheet], [frameDelay])
+        }
         let cellW = sheet.width
         let cellH = sheet.height / 2
         guard let f0 = sheet.cropping(to: CGRect(x: 0, y: 0, width: cellW, height: cellH)),
               let f1 = sheet.cropping(to: CGRect(x: 0, y: cellH, width: cellW, height: cellH)) else { return nil }
-        // Base 0.25s per frame (~0.5s cycle at 1×; scales from calm 0.5× idle to fast 5× sprint).
-        return ([f0, f1], [0.25, 0.25])
+        return ([f0, f1], [frameDelay, frameDelay])
+    }
+
+    /// Decodes a horizontal HeartGold/SoulSilver overworld follower sheet, extracting the side-walking frames.
+    private static func decodeHGSSOverworldSheet(_ url: URL) -> (frames: [CGImage], delays: [Double])? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let sheet = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              sheet.width > 0, sheet.height > 0 else { return nil }
+        let cells = max(1, sheet.width / sheet.height)
+        let cellW = sheet.width / cells
+        let cellH = sheet.height
+        // Standard 6-cell HGSS sheet: [down0, down1, up0, up1, leftWalk0, leftWalk1].
+        let i0: Int
+        let i1: Int
+        if cells >= 6 {
+            i0 = 4; i1 = 5
+        } else if cells >= 2 {
+            i0 = cells - 2; i1 = cells - 1
+        } else {
+            i0 = 0; i1 = 0
+        }
+        guard let f0 = sheet.cropping(to: CGRect(x: i0 * cellW, y: 0, width: cellW, height: cellH)),
+              let f1 = sheet.cropping(to: CGRect(x: i1 * cellW, y: 0, width: cellW, height: cellH)) else { return nil }
+        return ([f0, f1], [0.22, 0.22])
     }
 
     private static func decodeGIF(_ url: URL) -> (frames: [CGImage], delays: [Double])? {
@@ -253,14 +284,13 @@ final class SpriteStore {
     /// Crop and scale one frame. Upscales use nearest-neighbour so pixels stay razor-sharp.
     private static func render(_ img: CGImage, crop: CGRect, style: SpriteStyle,
                                height: CGFloat, maxWidth: CGFloat, flip: Bool, menuBarMode: Bool) -> NSImage {
-        let backing: CGFloat = 2 // Retina 2× backing
+        let backing: CGFloat = 2
         let targetH = height * backing
         let targetW = maxWidth * backing
         var scale = min(targetH / crop.height, targetW / crop.width)
         let crisp = scale >= 1
 
-        if style == .fireRed && menuBarMode {
-            // Prefer exact 2× Retina integer scale (1 GBA pixel = 1pt) when it fits in the menu bar.
+        if (style == .fireRed || style == .hgss) && menuBarMode {
             if crop.height * 2 <= targetH && crop.width * 2 <= targetW {
                 scale = 2.0
             }

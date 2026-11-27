@@ -47,7 +47,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 620, height: 530)
+        .frame(width: 690, height: 540)
     }
 
     private var tabBar: some View {
@@ -151,7 +151,7 @@ struct RunnersSettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Current roster (original B/W first, FireRed after)
+            // Current roster (B/W -> FireRed -> HGSS -> Emerald -> Crystal)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Your Runners").font(.headline)
@@ -183,28 +183,35 @@ struct RunnersSettingsView: View {
                     .disabled(selection == nil || settings.roster.count <= 1)
                     Spacer()
                     Button("Reset") { settings.resetRoster() }
-                        .help("Restore default Black/White + FireRed favourites")
+                        .help("Restore default favourites across all 5 series")
                 }
                 .controlSize(.small)
             }
             .padding(14)
-            .frame(width: 285)
+            .frame(width: 280)
 
             Divider()
 
-            // Pokédex search (B/W #001–#649 + FireRed #001–#386)
+            // Pokédex search across all 5 series (2,165 pixel sprites)
             VStack(alignment: .leading, spacing: 8) {
-                Text("Add from Pokédex").font(.headline)
+                HStack {
+                    Text("Add from Pokédex").font(.headline)
+                    Spacer()
+                    Text(seriesRangeLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
 
-                Picker("Style", selection: $styleFilter) {
+                Picker("Series", selection: $styleFilter) {
                     ForEach(DexStyleFilter.allCases) { f in
-                        Text(f.rawValue).tag(f)
+                        Text(f.label).tag(f)
                     }
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.small)
                 .labelsHidden()
 
-                TextField("Search by name, #number, or FireRed", text: $query)
+                TextField("Search by name, #number, or series", text: $query)
                     .textFieldStyle(.roundedBorder)
 
                 let matches = store.search(query, filter: styleFilter)
@@ -220,6 +227,13 @@ struct RunnersSettingsView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.14), lineWidth: 1))
             }
             .padding(14)
+        }
+    }
+
+    private var seriesRangeLabel: String {
+        switch styleFilter {
+        case .all: return "2,165 sprites · 5 series"
+        case .series(let s): return "\(s.title) · #001–\(SpriteStore.dexNumber(s.maxID))"
         }
     }
 
@@ -343,14 +357,14 @@ struct AboutView: View {
             Text("PokéRun").font(.largeTitle.bold())
             Text("Version \(version) · Personal build · \(store.speciesName(runner.dexID)) (\(store.subtitle(runner)))")
                 .foregroundStyle(.secondary)
-            Text("A RunCat-style menu bar runner. Your Pokémon animates faster as your Mac works harder.")
+            Text("A RunCat-style menu bar runner starring 2,165 pixel Pokémon across 5 classic series.")
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 390)
-            Divider().frame(width: 340)
+                .frame(maxWidth: 420)
+            Divider().frame(width: 380)
             VStack(spacing: 4) {
-                Text("Sprites: Pokémon Black & White (#001–#649) + Pokémon FireRed (#001–#386)")
+                Text("Series: Black & White (#001–#649) · FireRed (#001–#386) · HeartGold & SoulSilver (#001–#493)")
+                Text("Emerald (#001–#386) · Crystal (#001–#251)")
                 Text("© Nintendo / Creatures Inc. / GAME FREAK inc. / The Pokémon Company")
-                Text("Mirrored via PokeAPI/sprites and pret/pokefirered.")
                 Text("Inspired by RunCat by Kyome. Built for personal use only.")
             }
             .font(.caption)

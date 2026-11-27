@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Developer aid: `PokeRun --snapshot <dir>` renders the menu panel, settings tabs and
-/// menu bar frames (both Black/White and FireRed) to PNG files, then exits.
+/// menu bar sample strips across all 5 series to PNG files, then exits.
 enum Snapshot {
     @MainActor
     static func runIfRequested() {
@@ -29,32 +29,24 @@ enum Snapshot {
                   to: dir.appendingPathComponent("settings-\(tab).png"))
         }
 
-        // Menu bar strips: Black & White row on top, FireRed row below (both frames shown for FireRed!).
-        let bwItems = settings.roster.filter { $0.style == .blackWhite }
-        let frItems = settings.roster.filter { $0.style == .fireRed }
-
-        let strip = VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                ForEach(bwItems) { item in
-                    if let img = store.runnerFrames(for: item)?.images.first {
-                        Image(nsImage: img).interpolation(.none)
-                    }
-                }
-            }
-            .frame(height: 24)
-
-            HStack(spacing: 12) {
-                ForEach(frItems) { item in
-                    if let rf = store.runnerFrames(for: item), rf.images.count >= 2 {
-                        VStack(spacing: 2) {
-                            Image(nsImage: rf.images[0]).interpolation(.none)
-                            Image(nsImage: rf.images[1]).interpolation(.none)
+        let strip = VStack(alignment: .leading, spacing: 10) {
+            ForEach(SpriteStyle.allCases) { style in
+                let items = Array(settings.roster.filter { $0.style == style }.prefix(14))
+                HStack(spacing: 12) {
+                    Text(style.badge)
+                        .font(.caption.bold())
+                        .foregroundStyle(.black)
+                        .frame(width: 60, alignment: .leading)
+                    ForEach(items) { item in
+                        if let rf = store.runnerFrames(for: item), let img = rf.images.first {
+                            Image(nsImage: img).interpolation(.none)
                         }
                     }
                 }
+                .frame(height: 24)
             }
         }
-        .padding(8)
+        .padding(10)
         .background(Color(white: 0.92))
         write(strip, to: dir.appendingPathComponent("menubar.png"))
         print("snapshots written to \(dir.path)")

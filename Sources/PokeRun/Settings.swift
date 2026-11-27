@@ -2,10 +2,13 @@ import Foundation
 import Combine
 import ServiceManagement
 
-/// Which official Pokémon pixel-art set a runner comes from.
+/// Official Pokémon pixel-art series supported by PokéRun.
 enum SpriteStyle: String, CaseIterable, Codable, Hashable, Identifiable {
     case blackWhite = "bw"
     case fireRed = "fr"
+    case hgss = "hgss"
+    case emerald = "em"
+    case crystal = "cry"
 
     var id: String { rawValue }
 
@@ -13,13 +16,46 @@ enum SpriteStyle: String, CaseIterable, Codable, Hashable, Identifiable {
         switch self {
         case .blackWhite: return "B/W"
         case .fireRed: return "FireRed"
+        case .hgss: return "HGSS"
+        case .emerald: return "Emerald"
+        case .crystal: return "Crystal"
         }
     }
 
     var title: String {
         switch self {
         case .blackWhite: return "Black & White"
+        case .fireRed: return "FireRed Pixel"
+        case .hgss: return "HeartGold & SoulSilver"
+        case .emerald: return "Emerald"
+        case .crystal: return "Crystal"
+        }
+    }
+
+    var shortFilterLabel: String {
+        switch self {
+        case .blackWhite: return "B/W"
         case .fireRed: return "FireRed"
+        case .hgss: return "HGSS"
+        case .emerald: return "Emerald"
+        case .crystal: return "Crystal"
+        }
+    }
+
+    var subdirectory: String {
+        switch self {
+        case .blackWhite: return "sprites"
+        case .fireRed: return "sprites_firered"
+        case .hgss: return "sprites_hgss"
+        case .emerald: return "sprites_emerald"
+        case .crystal: return "sprites_crystal"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .blackWhite, .crystal: return "gif"
+        case .fireRed, .hgss, .emerald: return "png"
         }
     }
 
@@ -27,11 +63,14 @@ enum SpriteStyle: String, CaseIterable, Codable, Hashable, Identifiable {
         switch self {
         case .blackWhite: return 649
         case .fireRed: return 386
+        case .hgss: return 493
+        case .emerald: return 386
+        case .crystal: return 251
         }
     }
 }
 
-/// Identifies a single selectable Pokémon runner (style + National Pokédex number).
+/// Identifies a single selectable Pokémon runner (series + National Pokédex number).
 struct RunnerItem: Hashable, Codable, Identifiable {
     let style: SpriteStyle
     let dexID: Int
@@ -76,7 +115,6 @@ enum SpeedLimit: Int, CaseIterable, Identifiable {
         }
     }
 
-    /// Maximum playback-rate multiplier.
     var maxRate: Double {
         switch self {
         case .none: return 5.0
@@ -99,21 +137,28 @@ enum FPSLimit: Int, CaseIterable, Identifiable {
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    /// Curated Black & White favourites (#001–#649).
     static let defaultBWIDs = [1, 4, 6, 7, 25, 39, 52, 54, 94, 133, 143, 149, 150, 151, 175, 258, 393, 448]
-    /// Curated FireRed pixel favourites (#001–#386), placed after the original Black & White runners.
     static let defaultFireRedIDs = [1, 4, 6, 7, 25, 39, 52, 54, 59, 94, 131, 133, 143, 149, 150, 151, 258, 384]
+    static let defaultHGSSIDs = [25, 1, 4, 6, 7, 94, 133, 143, 151, 249, 250, 387, 390, 393, 445, 448, 493]
+    static let defaultEmeraldIDs = [252, 255, 257, 258, 282, 306, 330, 359, 373, 376, 380, 381, 382, 383, 384]
+    static let defaultCrystalIDs = [25, 6, 94, 131, 143, 151, 152, 155, 157, 158, 175, 197, 212, 245, 248, 249, 250, 251]
+
+    static let defaultNewSeriesRoster: [RunnerItem] =
+        defaultHGSSIDs.map { RunnerItem(style: .hgss, dexID: $0) } +
+        defaultEmeraldIDs.map { RunnerItem(style: .emerald, dexID: $0) } +
+        defaultCrystalIDs.map { RunnerItem(style: .crystal, dexID: $0) }
 
     static let defaultRoster: [RunnerItem] =
         defaultBWIDs.map { RunnerItem(style: .blackWhite, dexID: $0) } +
-        defaultFireRedIDs.map { RunnerItem(style: .fireRed, dexID: $0) }
+        defaultFireRedIDs.map { RunnerItem(style: .fireRed, dexID: $0) } +
+        defaultNewSeriesRoster
 
     static let defaultRunner = RunnerItem(style: .blackWhite, dexID: 25)
 
     private let defaults = UserDefaults.standard
 
     @Published var roster: [RunnerItem] {
-        didSet { defaults.set(roster.map(\.key), forKey: Keys.rosterV2) }
+        didSet { defaults.set(roster.map(\.key), forKey: Keys.rosterV3) }
     }
     @Published var selectedRunner: RunnerItem {
         didSet { defaults.set(selectedRunner.key, forKey: Keys.selectedV2) }
@@ -128,6 +173,7 @@ final class AppSettings: ObservableObject {
         static let rosterLegacy = "roster"
         static let selectedLegacy = "selectedID"
         static let rosterV2 = "rosterV2"
+        static let rosterV3 = "rosterV3"
         static let selectedV2 = "selectedRunnerV2"
         static let flip = "flipHorizontally"
         static let invertSpeed = "invertSpeed"
@@ -140,19 +186,26 @@ final class AppSettings: ObservableObject {
         let d = UserDefaults.standard
 
         let initialRoster: [RunnerItem]
-        if let storedKeys = d.stringArray(forKey: Keys.rosterV2) {
-            let parsed = storedKeys.compactMap(RunnerItem.init(key:))
+        if let v3Keys = d.stringArray(forKey: Keys.rosterV3) {
+            let parsed = v3Keys.compactMap(RunnerItem.init(key:))
             initialRoster = parsed.isEmpty ? Self.defaultRoster : parsed
+        } else if let v2Keys = d.stringArray(forKey: Keys.rosterV2) {
+            // Preserve existing B/W + FireRed roster and append HGSS, Emerald, and Crystal favourites.
+            var migrated = v2Keys.compactMap(RunnerItem.init(key:))
+            for item in Self.defaultNewSeriesRoster where !migrated.contains(item) {
+                migrated.append(item)
+            }
+            initialRoster = migrated.isEmpty ? Self.defaultRoster : migrated
+            d.set(initialRoster.map(\.key), forKey: Keys.rosterV3)
         } else if let legacyIDs = d.array(forKey: Keys.rosterLegacy) as? [Int], !legacyIDs.isEmpty {
-            // Migrate v1 Black & White roster and append the FireRed favourites right after them.
             let bw = legacyIDs.compactMap { (1...SpriteStyle.blackWhite.maxID).contains($0) ? RunnerItem(style: .blackWhite, dexID: $0) : nil }
             let fr = Self.defaultFireRedIDs.map { RunnerItem(style: .fireRed, dexID: $0) }
-            let migrated = bw + fr
+            let migrated = bw + fr + Self.defaultNewSeriesRoster
             initialRoster = migrated.isEmpty ? Self.defaultRoster : migrated
-            d.set(initialRoster.map(\.key), forKey: Keys.rosterV2)
+            d.set(initialRoster.map(\.key), forKey: Keys.rosterV3)
         } else {
             initialRoster = Self.defaultRoster
-            d.set(initialRoster.map(\.key), forKey: Keys.rosterV2)
+            d.set(initialRoster.map(\.key), forKey: Keys.rosterV3)
         }
 
         let initialSelected: RunnerItem
@@ -168,7 +221,6 @@ final class AppSettings: ObservableObject {
 
         roster = initialRoster
         selectedRunner = initialSelected
-
         flipHorizontally = d.bool(forKey: Keys.flip)
         invertSpeed = d.bool(forKey: Keys.invertSpeed)
         paused = d.bool(forKey: Keys.paused)
@@ -182,7 +234,7 @@ final class AppSettings: ObservableObject {
     }
 
     func removeFromRoster(_ item: RunnerItem) {
-        guard roster.count > 1 else { return } // always keep at least one runner
+        guard roster.count > 1 else { return }
         roster.removeAll { $0 == item }
         if selectedRunner == item, let first = roster.first { selectedRunner = first }
     }

@@ -134,23 +134,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard menu === runnerMenu else { return }
         menu.removeAllItems()
 
-        let hasBothStyles = Set(settings.roster.map(\.style)).count > 1
-        var lastStyle: SpriteStyle?
-
+        // Group roster into ordered per-series submenus so all 5 series stay quick to browse.
+        var orderedStyles: [SpriteStyle] = []
+        var grouped: [SpriteStyle: [RunnerItem]] = [:]
         for runner in settings.roster {
-            if hasBothStyles && runner.style != lastStyle {
-                if lastStyle != nil { menu.addItem(.separator()) }
-                let headerTitle = runner.style == .blackWhite ? "Black & White" : "FireRed Pixel"
-                let header = NSMenuItem.sectionHeader(title: headerTitle)
-                menu.addItem(header)
-                lastStyle = runner.style
+            if grouped[runner.style] == nil {
+                orderedStyles.append(runner.style)
+                grouped[runner.style] = []
             }
-            let item = NSMenuItem(title: store.displayName(runner), action: #selector(selectRunner(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = runner.key
-            item.image = store.thumbnail(for: runner, height: 18)
-            item.state = runner == settings.selectedRunner ? .on : .off
-            menu.addItem(item)
+            grouped[runner.style]?.append(runner)
+        }
+
+        if orderedStyles.count <= 1 {
+            for runner in settings.roster {
+                menu.addItem(makeRunnerMenuItem(runner, includeSeriesSuffix: false))
+            }
+        } else {
+            for style in orderedStyles {
+                guard let items = grouped[style], !items.isEmpty else { continue }
+                let sub = NSMenu(title: style.title)
+                sub.autoenablesItems = false
+                for runner in items {
+                    sub.addItem(makeRunnerMenuItem(runner, includeSeriesSuffix: false))
+                }
+                let parent = NSMenuItem(title: style.title, action: nil, keyEquivalent: "")
+                if let sample = items.first(where: { $0 == settings.selectedRunner }) ?? items.first {
+                    parent.image = store.thumbnail(for: sample, height: 18)
+                }
+                parent.state = settings.selectedRunner.style == style ? .on : .off
+                parent.submenu = sub
+                menu.addItem(parent)
+            }
         }
 
         menu.addItem(.separator())
@@ -160,6 +174,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let manage = NSMenuItem(title: "Manage Runners…", action: #selector(openRunnersSettings), keyEquivalent: "")
         manage.target = self
         menu.addItem(manage)
+    }
+
+    private func makeRunnerMenuItem(_ runner: RunnerItem, includeSeriesSuffix: Bool) -> NSMenuItem {
+        let title = includeSeriesSuffix ? store.displayName(runner) : store.speciesName(runner.dexID)
+        let item = NSMenuItem(title: title, action: #selector(selectRunner(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = runner.key
+        item.image = store.thumbnail(for: runner, height: 18)
+        item.state = runner == settings.selectedRunner ? .on : .off
+        return item
     }
 
     @objc private func selectRunner(_ sender: NSMenuItem) {

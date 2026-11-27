@@ -25,6 +25,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp -R Resources/sprites "$APP/Contents/Resources/sprites"
 cp -R Resources/sprites_firered "$APP/Contents/Resources/sprites_firered"
+cp -R Resources/sprites_hgss "$APP/Contents/Resources/sprites_hgss"
+cp -R Resources/sprites_emerald "$APP/Contents/Resources/sprites_emerald"
+cp -R Resources/sprites_crystal "$APP/Contents/Resources/sprites_crystal"
 cp Resources/names.json "$APP/Contents/Resources/names.json"
 
 # 4. Icon
